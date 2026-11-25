@@ -173,8 +173,10 @@ function lobUpd(){if(!room)return;const ps=room.peers();
  $('pl').textContent='In room: '+ps.map(x=>{const n=x.presence&&x.presence.n?String(x.presence.n).slice(0,12):'…',t=x.presence&&x.presence.team;return n+(x.sameTab?' (you)':'')+(t==='r'?' [Red]':t==='b'?' [Blue]':'')}).join(' · ')}
 function setTeam(t){me.team=t;me.c=t==='r'?5:215;if(room)room.presence({team:t});lobUpd()}
 const loadPeer=()=>new Promise((ok,no)=>{if(window.Peer)return ok();const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s);setTimeout(no,7000)});
+const ICE=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:global.stun.twilio.com:3478'},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turn:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}];
 function peerLobby(){return{join:code=>new Promise((res,rej)=>{
- const host=created,ev={},cn=new Map();let P={},id=null,hc=null,dirty=0,tm=0;const pr=new Peer(host?'zr-'+code:undefined);
+ const host=created,ev={},cn=new Map();let P={},id=null,hc=null,dirty=0,tm=0,tries=0,done=0,dial=()=>{};const pr=new Peer(host?'zr-'+code:undefined,{config:{iceServers:ICE}});
+ pr.on('disconnected',()=>{if(!pr.destroyed)setTimeout(()=>{try{pr.reconnect()}catch(_){}},1000)});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&pr.disconnected&&!pr.destroyed)try{pr.reconnect()}catch(_){}});
  const fireE=(e,d,f)=>(ev[e]||[]).forEach(h=>h({data:d,peer:f,sameTab:f===id}));
  const list=()=>Object.keys(P).map(k=>({peer:k,sameTab:k===id,presence:P[k]}));
  const bc=(m,ex)=>cn.forEach((c,k)=>{if(k!==ex&&c.open)c.send(m)});
@@ -182,16 +184,16 @@ function peerLobby(){return{join:code=>new Promise((res,rej)=>{
   emit:(e,d)=>{fireE(e,d,id);if(host)bc({t:'ev',e,d,f:id});else if(hc&&hc.open)hc.send({t:'ev',e,d})},
   presence:o=>{P[id]=Object.assign(P[id]||{},o);if(host)dirty=1;else if(hc&&hc.open)hc.send({t:'pr',p:o})},
   leave:async()=>{clearInterval(tm);try{pr.destroy()}catch(e){}}};
- pr.on('error',e=>rej({code:e.type}));
+ pr.on('error',e=>{if(e.type==='peer-unavailable'&&!host&&!done&&tries<4){setTimeout(dial,2500);return}rej({code:e.type});if(!id)try{pr.destroy()}catch(_){}});
  pr.on('open',pid=>{id=pid;P[id]={};
   if(host){tm=setInterval(()=>{if(dirty){dirty=0;bc({t:'pl',P});if(R.cb)R.cb(list())}},60);
-   pr.on('connection',c=>{c.on('open',()=>{cn.set(c.peer,c);dirty=1});
+   pr.on('connection',c=>{if(cn.size>=7){c.on('open',()=>c.close());return}c.on('open',()=>{cn.set(c.peer,c);dirty=1});
     c.on('data',m=>{if(m.t==='pr'){P[c.peer]=Object.assign(P[c.peer]||{},m.p);dirty=1}else if(m.t==='ev'){fireE(m.e,m.d,c.peer);bc({t:'ev',e:m.e,d:m.d,f:c.peer},c.peer)}});
     c.on('close',()=>{cn.delete(c.peer);delete P[c.peer];dirty=1})});res(R)}
-  else{hc=pr.connect('zr-'+code,{reliable:true});setTimeout(()=>rej({code:'no-host'}),8000);
-   hc.on('open',()=>{hc.send({t:'pr',p:P[id]});res(R)});
+  else{dial=()=>{tries++;hc=pr.connect('zr-'+code,{reliable:true,serialization:'json'});
+   hc.on('open',()=>{done=1;hc.send({t:'pr',p:P[id]});res(R)});
    hc.on('data',m=>{if(m.t==='pl'){const mine=P[id];P=m.P;if(!P[id])P[id]=mine;if(R.cb)R.cb(list())}else if(m.t==='ev')fireE(m.e,m.d,m.f)});
-   hc.on('close',()=>{if(R.cb)R.cb(list())})}})})}}
+   hc.on('close',()=>{if(R.cb)R.cb(list())})};dial();setTimeout(()=>{if(!done){rej({code:'no-host'});try{pr.destroy()}catch(_){}}},16000)}})})}}
 async function joinRoom(code){
  if(!lobbyR){$('st').textContent='Rooms are not available here.';return}
  if(room)return;$('st').textContent='Joining…';
@@ -199,9 +201,9 @@ async function joinRoom(code){
   r.presence({n:($('nm').value||'Player').slice(0,12),team:''});
   $('menu').style.display='none';$('lob').style.display='block';$('rc').textContent=code;
   $('rmode').textContent=MODE==='t'?'2v2: first team to '+TG+' kills wins':'All Fight: first to '+FG+' kills wins';
-  $('rmode').textContent+=' · Map: '+PAL.n;$('tmw').style.display=MODE==='t'?'block':'none';$('made').textContent=created?'✅ Room created! Copy the link below and send it to your friends.':'You joined the room.';created=false;$('lnk').value=BASE+'#'+code;$('st').textContent='Friends can also type the room code.';
+  $('rmode').textContent+=' · Map: '+PAL.n;$('tmw').style.display=MODE==='t'?'block':'none';$('made').textContent=created?'✅ Room created! Copy the link below and send it to your friends. Keep this tab open while they join.':'You joined the room.';created=false;$('lnk').value=BASE+'#'+code;$('st').textContent=location.protocol==='file:'?'Friends must open this game from the same web address (upload index.html online) to join.':'Anyone in the room can share this code or link.';
   try{location.hash=code}catch(e){}lobUpd()}
- catch(e){room=null;created=false;$('st').textContent='Could not join the room ('+((e&&e.code)||'error')+'). Check the code and try again.'}}
+ catch(e){room=null;created=false;$('st').textContent=e&&e.code==='peer-unavailable'?'Room not found. Check the code, and make sure the host keeps the game tab open.':'Could not join the room ('+((e&&e.code)||'error')+'). Check your internet and try again.'}}
 (async()=>{
  try{lobbyR=window.claude&&await window.claude.use('room')}catch(e){lobbyR=null}
  if(!lobbyR){try{await loadPeer();lobbyR=peerLobby()}catch(e){lobbyR=null}}
