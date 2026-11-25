@@ -194,6 +194,31 @@ function peerLobby(){return{join:code=>new Promise((res,rej)=>{
    hc.on('open',()=>{done=1;hc.send({t:'pr',p:P[id]});res(R)});
    hc.on('data',m=>{if(m.t==='pl'){const mine=P[id];P=m.P;if(!P[id])P[id]=mine;if(R.cb)R.cb(list())}else if(m.t==='ev')fireE(m.e,m.d,m.f)});
    hc.on('close',()=>{if(R.cb)R.cb(list())})};dial();setTimeout(()=>{if(!done){rej({code:'no-host'});try{pr.destroy()}catch(_){}}},16000)}})})}}
+const loadMq=()=>new Promise((ok,no)=>{if(window.mqtt)return ok();const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s);setTimeout(no,8000)});
+function mqttLobby(){return{join:code=>new Promise((res,rej)=>{
+ const id='u'+Math.random().toString(36).slice(2,10),T='zr1/'+code,ev={},P={},seen=new Set(),seenAt={},sgs={},cl=[];let up=0,dirty=1,last=0,tm=0,cbk=null,resd=0;
+ P[id]={};seenAt[id]=Date.now();
+ const pub=o=>{o.m=Math.random().toString(36).slice(2,10);const j=JSON.stringify(o);cl.forEach(c=>{if(c.connected)c.publish(T,j)})};
+ const list=()=>Object.keys(P).map(k=>({peer:k,sameTab:k===id,presence:P[k]}));
+ const fireE=(e,d,f)=>(ev[e]||[]).forEach(h=>h({data:d,peer:f,sameTab:f===id}));
+ const fin=()=>{if(!resd){resd=1;res(R)}};
+ const R={on:(e,h)=>{(ev[e]=ev[e]||[]).push(h)},onPeers:h=>{cbk=h},peers:list,
+  emit:(e,d)=>{fireE(e,d,id);pub({t:'ev',e,d,f:id})},
+  presence:o=>{Object.assign(P[id],o);dirty=1},
+  leave:async()=>{clearInterval(tm);pub({t:'bye',f:id});setTimeout(()=>cl.forEach(c=>{try{c.end(true)}catch(_){}}),200)}};
+ const tick=()=>{const n=Date.now();let ch=0;if((dirty&&n-last>=80)||n-last>=1500){last=n;dirty=0;pub({t:'pr',f:id,p:P[id]})}
+  for(const k in P)if(k!==id&&n-(seenAt[k]||0)>7000){delete P[k];ch=1}if(ch&&cbk)cbk(list())};
+ const onMsg=(t,b)=>{let m;try{m=JSON.parse(b.toString())}catch(_){return}
+  if(!m||!m.m||m.f===id||seen.has(m.m))return;seen.add(m.m);if(seen.size>500)seen.delete(seen.values().next().value);
+  if(m.t==='pr'&&m.p){const nw=!P[m.f],sg=JSON.stringify([m.p.n,m.p.team]);P[m.f]=m.p;seenAt[m.f]=Date.now();if(nw)dirty=1;if((nw||sgs[m.f]!==sg)&&cbk){sgs[m.f]=sg;cbk(list())}fin()}
+  else if(m.t==='ev')fireE(m.e,m.d,m.f);
+  else if(m.t==='bye'){delete P[m.f];if(cbk)cbk(list())}
+  else if(m.t==='hi')dirty=1};
+ ['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].forEach(u=>{
+  const c=mqtt.connect(u,{clientId:id,reconnectPeriod:2000,connectTimeout:7000,clean:true});cl.push(c);
+  c.on('connect',()=>{c.subscribe(T,()=>{if(!up){up=1;tm=setInterval(tick,80);if(created)fin();else setTimeout(()=>{if(!resd){rej({code:'empty'});R.leave()}},6000)}pub({t:'hi',f:id})})});
+  c.on('message',onMsg);c.on('error',()=>{})});
+ setTimeout(()=>{if(!up){rej({code:'no-server'});cl.forEach(c=>{try{c.end(true)}catch(_){}})}},10000)})}}
 async function joinRoom(code){
  if(!lobbyR){$('st').textContent='Rooms are not available here.';return}
  if(room)return;$('st').textContent='Joining…';
@@ -201,12 +226,12 @@ async function joinRoom(code){
   r.presence({n:($('nm').value||'Player').slice(0,12),team:''});
   $('menu').style.display='none';$('lob').style.display='block';$('rc').textContent=code;
   $('rmode').textContent=MODE==='t'?'2v2: first team to '+TG+' kills wins':'All Fight: first to '+FG+' kills wins';
-  $('rmode').textContent+=' · Map: '+PAL.n;$('tmw').style.display=MODE==='t'?'block':'none';$('made').textContent=created?'✅ Room created! Copy the link below and send it to your friends. Keep this tab open while they join.':'You joined the room.';created=false;$('lnk').value=BASE+'#'+code;$('st').textContent=location.protocol==='file:'?'Friends must open this game from the same web address (upload index.html online) to join.':'Anyone in the room can share this code or link.';
+  $('rmode').textContent+=' · Map: '+PAL.n;$('tmw').style.display=MODE==='t'?'block':'none';$('made').textContent=created?'✅ Room created! Copy the link below and send it to your friends.':'You joined the room.';created=false;$('lnk').value=BASE+'#'+code;$('st').textContent=location.protocol==='file:'?'Friends must open this game from the same web address (upload index.html online) to join.':'Anyone in the room can share this code or link.';
   try{location.hash=code}catch(e){}lobUpd()}
- catch(e){room=null;created=false;$('st').textContent=e&&e.code==='peer-unavailable'?'Room not found. Check the code, and make sure the host keeps the game tab open.':'Could not join the room ('+((e&&e.code)||'error')+'). Check your internet and try again.'}}
+ catch(e){room=null;created=false;$('st').textContent=e&&(e.code==='empty'||e.code==='peer-unavailable')?'Nobody is in that room. Check the code, and make sure the host is still in the lobby.':'Could not join the room ('+((e&&e.code)||'error')+'). Check your internet and try again.'}}
 (async()=>{
  try{lobbyR=window.claude&&await window.claude.use('room')}catch(e){lobbyR=null}
- if(!lobbyR){try{await loadPeer();lobbyR=peerLobby()}catch(e){lobbyR=null}}
+ if(!lobbyR){try{await loadMq();lobbyR=mqttLobby()}catch(e){lobbyR=null}}
  if(lobbyR){$('st').textContent='Connected. Create a room or join with a code.';const c=parse(location.hash);if(c){$('code').value=c;joinRoom(c)}}
  else{$('st').textContent='Rooms need an internet connection. You can still play solo vs bots.';['bF','bT','bC','bJ'].forEach(i=>$(i).disabled=true)}})();
 let selM='f',created=false,selMap=0;function pickM(m){selM=m;$('bF').className=m==='f'?'':'alt';$('bT').className=m==='t'?'':'alt'}
