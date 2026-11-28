@@ -513,36 +513,41 @@ let ZM=1,ZMt=1,PSX=0,PSY=0;const CAMS={x:0,y:0,t:0,ok:0,sh:0};
 let T3=null,td3Req=0;
 function td3Ready(){return window.THREE&&THREE.REVISION}
 function loadThree(){return new Promise((ok,no)=>{if(td3Ready())return ok();const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s);setTimeout(no,9000)})}
+function webglOK(){try{const c=document.createElement('canvas');return !!(window.WebGLRenderingContext&&(c.getContext('webgl')||c.getContext('experimental-webgl')))}catch(e){return false}}
 async function open3D(){
+ if(!webglOK()){$('st').textContent='This browser/device cannot run 3D World (no WebGL support). Please use the 2D modes above.';return}
  $('st').textContent='Loading 3D world…';
  try{await loadThree()}catch(e){$('st').textContent='3D World needs an internet connection to load. Try again, or play the 2D map below.';return}
  if(!PAL||PAL===MAPS[MAPS.length-1])genMap(0);
- $('td3').classList.add('on');document.body.classList.add('ing');goLand();
- if(!T3)T3=td3Build();else td3Resize();
+ $('td3').classList.add('on');document.body.classList.add('ing');goLand();$('td3tip').textContent='Building the world…';
+ try{if(!T3)T3=td3Build();else td3Resize()}
+ catch(e){close3D();$('st').textContent='3D World failed to start: '+e.message;return}
+ $('td3tip').textContent='Drag to look · WASD/D-pad to move · Shift to run';
  T3.active=true;T3.last=performance.now();requestAnimationFrame(td3Loop)}
 function close3D(){if(T3)T3.active=false;$('td3').classList.remove('on');document.body.classList.remove('ing')}
 $('td3x').onclick=close3D;
 function td3Resize(){if(!T3)return;const w=innerWidth,h=innerHeight;T3.renderer.setSize(w,h);T3.cam.aspect=w/h;T3.cam.updateProjectionMatrix()}
 addEventListener('resize',td3Resize);
 function td3Build(){
- const cv=$('c3'),renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;
+ const cv=$('c3');let renderer;try{renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,powerPreference:'low-power',failIfMajorPerformanceCaveat:false})}catch(e){throw new Error('could not create a WebGL context ('+e.message+')')}
+ if(!renderer.getContext())throw new Error('WebGL context unavailable on this device');
+ renderer.setPixelRatio(Math.min(1.5,devicePixelRatio||1));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=false;
  const scene=new THREE.Scene();scene.background=new THREE.Color(PAL.bg||'#6c9c4c');scene.fog=new THREE.Fog(scene.background.getHex(),900,3400);
  const cam=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,1,6000);
- const sun=new THREE.DirectionalLight(0xfff2d8,1.15);sun.position.set(600,1400,400);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
- sun.shadow.camera.left=-1400;sun.shadow.camera.right=1400;sun.shadow.camera.top=1400;sun.shadow.camera.bottom=-1400;sun.shadow.camera.far=3000;
- scene.add(sun);scene.add(new THREE.AmbientLight(0xcfe0ff,.55));scene.add(new THREE.HemisphereLight(0xbcd4ff,0x3a3022,.5));
+ const sun=new THREE.DirectionalLight(0xfff2d8,1.15);sun.position.set(600,1400,400);
+ scene.add(sun);scene.add(new THREE.AmbientLight(0xcfe0ff,.65));scene.add(new THREE.HemisphereLight(0xbcd4ff,0x3a3022,.5));
  const ground=new THREE.Mesh(new THREE.PlaneGeometry(W,H,1,1),new THREE.MeshStandardMaterial({color:PAL.pt||'#5f8c42'}));
- ground.rotation.x=-Math.PI/2;ground.position.set(W/2,0,H/2);ground.receiveShadow=true;scene.add(ground);
- const rg=new THREE.Group();for(const r of roads){const m=new THREE.Mesh(new THREE.PlaneGeometry(r.w,r.h),new THREE.MeshStandardMaterial({color:PAL.rd||'#3b3f44'}));m.rotation.x=-Math.PI/2;m.position.set(r.x+r.w/2,.4,r.y+r.h/2);m.receiveShadow=true;rg.add(m)}scene.add(rg);
+ ground.rotation.x=-Math.PI/2;ground.position.set(W/2,0,H/2);scene.add(ground);
+ const rg=new THREE.Group();for(const r of roads){const m=new THREE.Mesh(new THREE.PlaneGeometry(r.w,r.h),new THREE.MeshStandardMaterial({color:PAL.rd||'#3b3f44'}));m.rotation.x=-Math.PI/2;m.position.set(r.x+r.w/2,.4,r.y+r.h/2);rg.add(m)}scene.add(rg);
  if(lake){const wm=new THREE.Mesh(new THREE.PlaneGeometry(lake.w,lake.h),new THREE.MeshStandardMaterial({color:PAL.lk||'#2f7fa8',transparent:true,opacity:.92,roughness:.25,metalness:.15}));wm.rotation.x=-Math.PI/2;wm.position.set(lake.x+lake.w/2,.6,lake.y+lake.h/2);scene.add(wm);T3_water=wm}
  const bld=new THREE.Group(),bmat=new THREE.MeshStandardMaterial({color:PAL.wl||'#cbb89a'});
  for(const w of walls){if(w.t!=='b')continue;const h=60+((w.w*w.h)%5)*22;const m=new THREE.Mesh(new THREE.BoxGeometry(w.w,h,w.h),w.c?new THREE.MeshStandardMaterial({color:w.c}):bmat);
-  m.position.set(w.x+w.w/2,h/2,w.y+w.h/2);m.castShadow=true;m.receiveShadow=true;bld.add(m)}
- for(const w of walls){if(w.t!=='t')continue;const tr=new THREE.Mesh(new THREE.ConeGeometry(16,38,7),new THREE.MeshStandardMaterial({color:w.f?'#d8431f':(PAL.t1||'#1f6a34')}));tr.position.set(w.x+7,24,w.y+7);tr.castShadow=true;bld.add(tr);
+  m.position.set(w.x+w.w/2,h/2,w.y+w.h/2);bld.add(m)}
+ for(const w of walls){if(w.t!=='t')continue;const tr=new THREE.Mesh(new THREE.ConeGeometry(16,38,7),new THREE.MeshStandardMaterial({color:w.f?'#d8431f':(PAL.t1||'#1f6a34')}));tr.position.set(w.x+7,24,w.y+7);bld.add(tr);
   const tk=new THREE.Mesh(new THREE.CylinderGeometry(2.4,3,16,6),new THREE.MeshStandardMaterial({color:PAL.tk||'#5a3a1f'}));tk.position.set(w.x+7,8,w.y+7);bld.add(tk)}
  scene.add(bld);
  for(const p of PICK){const lb=td3Label(p.loc||'');if(lb){lb.position.set(p.x,150,p.y);scene.add(lb)}}
- const avG=id=>{const g=new THREE.Group(),bc=id==='me'?0x3aa0ff:0xe0574a,mat=new THREE.MeshStandardMaterial({color:bc}),torso=new THREE.Mesh(new THREE.CylinderGeometry(8,8,26,10),mat);torso.position.y=26;torso.castShadow=true;g.add(torso);const sTop=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sTop.position.y=39;sTop.castShadow=true;g.add(sTop);const sBot=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sBot.position.y=13;sBot.castShadow=true;g.add(sBot);
+ const avG=id=>{const g=new THREE.Group(),bc=id==='me'?0x3aa0ff:0xe0574a,mat=new THREE.MeshStandardMaterial({color:bc}),torso=new THREE.Mesh(new THREE.CylinderGeometry(8,8,26,10),mat);torso.position.y=26;g.add(torso);const sTop=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sTop.position.y=39;g.add(sTop);const sBot=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sBot.position.y=13;g.add(sBot);
   const head=new THREE.Mesh(new THREE.SphereGeometry(7,10,8),new THREE.MeshStandardMaterial({color:0xe8c9a0}));head.position.y=44;head.castShadow=true;g.add(head);g.visible=false;scene.add(g);return g};
  const meAv=avG('me');const peerAv={};
  const keyL={},drag={on:0,x:0,y:0,yaw:Math.PI,pitch:-.18,dist:170};
@@ -572,7 +577,11 @@ function td3Move(dt){const T=T3,k=T.keyL,run=k.shift?1.8:1,sp=160*run,yaw=T.drag
  if(T3_water)T3_water.position.y=.6+Math.sin(performance.now()/900)*1.2;
  if(room){const seen={};for(const p of room.peers()){if(p.sameTab||!p.presence||!p.presence.td3)continue;seen[p.peer]=1;let a=T.peerAv[p.peer];if(!a){a=T.avG(p.peer);T.peerAv[p.peer]=a}a.visible=true;a.position.set(p.presence.x,0,p.presence.y);a.rotation.y=p.presence.a||0}
   for(const id in T.peerAv)if(!seen[id]){T.scene.remove(T.peerAv[id]);delete T.peerAv[id]}}}
-function td3Loop(t){if(!T3||!T3.active)return;const dt=Math.min(.05,(t-T3.last)/1000);T3.last=t;T3.frame++;td3Move(dt);T3.renderer.render(T3.scene,T3.cam);requestAnimationFrame(td3Loop)}
+function td3Loop(t){if(!T3||!T3.active)return;
+ try{const dt=Math.min(.05,(t-T3.last)/1000);T3.last=t;T3.frame++;td3Move(dt);T3.renderer.render(T3.scene,T3.cam);
+  if(T3.renderer.getContext&&T3.renderer.getContext().isContextLost&&T3.renderer.getContext().isContextLost()){close3D();$('st').textContent='3D World stopped: the graphics context was lost (common on low-memory phones). Try again or use 2D.';return}
+  requestAnimationFrame(td3Loop)}
+ catch(e){close3D();$('st').textContent='3D World stopped: '+e.message;console.error(e)}}
 
 const VC={st:null,node:null,on:false,seq:0,hang:0,pre:null,mute:{},last:{},seen:{},rxAt:0,lvl:0,hp:false,deaf:false,vol:1},VM={node:null,q:{}};
 const vOK=()=>!!(room&&room.voice),vMe=()=>{const p=room&&room.peers().find(x=>x.sameTab);return p?p.peer:null};
