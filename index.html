@@ -542,7 +542,7 @@ function td3Build(){
   const tk=new THREE.Mesh(new THREE.CylinderGeometry(2.4,3,16,6),new THREE.MeshStandardMaterial({color:PAL.tk||'#5a3a1f'}));tk.position.set(w.x+7,8,w.y+7);bld.add(tk)}
  scene.add(bld);
  for(const p of PICK){const lb=td3Label(p.loc||'');if(lb){lb.position.set(p.x,150,p.y);scene.add(lb)}}
- const avG=id=>{const g=new THREE.Group(),body=new THREE.Mesh(new THREE.CapsuleGeometry(9,24,4,8),new THREE.MeshStandardMaterial({color:id==='me'?0x3aa0ff:0xe0574a}));body.position.y=25;body.castShadow=true;g.add(body);
+ const avG=id=>{const g=new THREE.Group(),bc=id==='me'?0x3aa0ff:0xe0574a,mat=new THREE.MeshStandardMaterial({color:bc}),torso=new THREE.Mesh(new THREE.CylinderGeometry(8,8,26,10),mat);torso.position.y=26;torso.castShadow=true;g.add(torso);const sTop=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sTop.position.y=39;sTop.castShadow=true;g.add(sTop);const sBot=new THREE.Mesh(new THREE.SphereGeometry(8,10,8),mat);sBot.position.y=13;sBot.castShadow=true;g.add(sBot);
   const head=new THREE.Mesh(new THREE.SphereGeometry(7,10,8),new THREE.MeshStandardMaterial({color:0xe8c9a0}));head.position.y=44;head.castShadow=true;g.add(head);g.visible=false;scene.add(g);return g};
  const meAv=avG('me');const peerAv={};
  const keyL={},drag={on:0,x:0,y:0,yaw:Math.PI,pitch:-.18,dist:170};
